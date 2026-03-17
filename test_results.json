@@ -1,0 +1,55 @@
+{
+  "source": "https://github.com/nf-core/rnaseq",
+  "source_type": "github",
+  "files_checked": [
+    "main.nf",
+    "README.md",
+    "docs/usage.md",
+    "nextflow.config",
+    "conf/base.config"
+  ],
+  "dependency_pinning": {
+    "all_pinned": true,
+    "unpinned_dependencies": []
+  },
+  "config_files": {
+    "presence": true,
+    "correctness_score": 0.0,
+    "files_analyzed": [
+      "nextflow.config",
+      "conf/base.config"
+    ]
+  },
+  "overall_assessment": {
+    "score": 10.0,
+    "medal": "✅ Pass",
+    "individual_scores": {
+      "main.nf": {
+        "score": 0.0,
+        "type": "nextflow"
+      },
+      "README.md": {
+        "score": 0.0,
+        "type": "readme"
+      },
+      "docs/usage.md": {
+        "score": 0.0,
+        "type": "readme"
+      },
+      "nextflow.config": {
+        "score": 0.0,
+        "type": "config"
+      },
+      "conf/base.config": {
+        "score": 0.0,
+        "type": "config"
+      }
+    }
+  },
+  "parameter_consistency": {
+    "checked": false,
+    "results": ""
+  },
+  "analysis_timestamp": "2026-03-17",
+  "LLM-usage": false
+}
