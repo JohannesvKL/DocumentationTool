@@ -1,65 +1,50 @@
-import subprocess
-import os
-import getpass
-import re
-import json
-import argparse
-import sys
-import shutil
+"""Structured evidence for Conda dependency pinning."""
 from pathlib import Path
-from FileFunctions import check_conda_file, gitgetter, fetch_github_file
+import yaml
+from FileFunctions import check_conda_file, gitgetter
+
+
+def inspect_dependencies(repo_dir, dockerfiles, conda_files):
+    result = {"status": "NOT_CHECKED", "all_pinned": False,
+              "unpinned_dependencies": [], "files_analyzed": [], "reasons": []}
+    errors = []
+    declarations = 0
+    for filename in conda_files:
+        try:
+            unpinned = check_conda_file(filename)
+            data = yaml.safe_load(Path(filename).read_text(encoding="utf-8"))
+            declarations += sum(1 if isinstance(d, str) else len(d.get('pip', [])) for d in data['dependencies'])
+            result['unpinned_dependencies'].extend(unpinned)
+            result['files_analyzed'].append(str(Path(filename).relative_to(repo_dir)))
+        except (OSError, ValueError, yaml.YAMLError) as e:
+            errors.append(str(e))
+    if errors:
+        result['status'] = 'ERROR'
+        result['reasons'].extend(errors)
+    elif result['unpinned_dependencies']:
+        result['status'] = 'FAIL'
+        result['reasons'].extend(result['unpinned_dependencies'])
+    elif declarations and not dockerfiles:
+        result['status'] = 'PASS'
+        result['all_pinned'] = True
+        result['reasons'].append('All inspected Conda and nested pip declarations use exact versions.')
+    if not declarations:
+        result['reasons'].append('No Conda dependency declarations available to assess.')
+    if dockerfiles:
+        result['reasons'].append('Dockerfiles detected; Docker image and RUN dependency pinning are not assessed.')
+    return result
 
 
 def check_dependencies_for_repo_with_local_files(repo_dir, dockerfiles, conda_files):
-    """Check dependency pinning using already downloaded files"""
-    dependency_lines = []
-    dependency_lines.append(f"Checking dependencies for repository: {repo_dir}")
-    
-    # Check for conda environment files
-    unpinned_found = False
-    pinned_found = False
-    
-    for conda_file in conda_files:
-        unpinned = check_conda_file(conda_file)
-        if unpinned:
-            unpinned_found = True
-            dependency_lines.append(f"⚠️  Found unpinned dependencies in {conda_file}:")
-            for dep in unpinned:
-                dependency_lines.append(f"  - {dep}")
-        else:
-            pinned_found = True
-    
-    if not conda_files:
-        dependency_lines.append("No conda environment files found in repository")
-    
-    return '\n'.join(dependency_lines)
+    """Compatibility text interface; assessments consume inspect_dependencies instead."""
+    result = inspect_dependencies(repo_dir, dockerfiles, conda_files)
+    return result['status'] + ': ' + '\n'.join(result['reasons'])
+
 
 def check_dependencies_for_repo(repo_url):
-    """Check dependency pinning for a GitHub repository"""
-    dependency_lines = []
-    dependency_lines.append(f"Checking dependencies for repository: {repo_url}")
-    
-    # Use the absolute path to find the files
+    import shutil
     dockerfiles, conda_files, repo_dir = gitgetter(repo_url)
-
-    unpinned_found = False
-    pinned_found = False
-    for conda_file in conda_files:
-            unpinned = check_conda_file(conda_file)
-            if unpinned:
-                unpinned_found = True
-                dependency_lines.append(f"⚠️  Found unpinned dependencies in {conda_file}:")
-                for dep in unpinned:
-                    dependency_lines.append(f"  - {dep}")
-            else:
-                #dependency_lines.append(f"✅ All {conda_file} dependencies appear to be pinned!")
-                pinned_found = True 
-        
-            #break  # Only check the first conda file found
-
-    if os.path.exists(repo_dir):
-                print(f"Cleaning up {repo_dir}...")
-                shutil.rmtree(repo_dir)
-                print("Cleanup complete.")
-    
-    return '\n'.join(dependency_lines)
+    try:
+        return check_dependencies_for_repo_with_local_files(repo_dir, dockerfiles, conda_files)
+    finally:
+        shutil.rmtree(repo_dir)

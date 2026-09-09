@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "workflow-documentation-checker"
+version = "0.2.0"
+description = "Static and optional AI assessment of workflow documentation"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6", "GitPython>=3.1", "packaging>=23", "requests>=2.28"]
+
+[project.optional-dependencies]
+ai = ["langchain>=0.3.27,<1", "langchain-google-genai>=2.1.8,<3"]
+test = ["pytest>=7"]
+
+[project.scripts]
+doccheck = "CurrentDocChecker:main"
+
+[tool.setuptools]
+py-modules = ["CurrentDocChecker", "DependencyChecker", "FileFunctions", "analysis", "scoring", "static_checks"]
+
+[tool.setuptools.packages.find]
+include = ["pipeline_analyzers*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

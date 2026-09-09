@@ -1,0 +1,3 @@
+{
+  "files": ["main.nf", "nextflow.config", "README.md"]
+}
