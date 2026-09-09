@@ -1,0 +1,3 @@
+name: checker-example
+dependencies:
+  - python=3.12.11

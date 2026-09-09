@@ -1,9 +1,10 @@
 import re
-from langchain.chat_models import init_chat_model
 
 
 def check_documentation_quality(file_content, file_type="nextflow"):
     """Use AI to analyze documentation quality and return a score"""
+    from langchain.chat_models import init_chat_model
+
     model = init_chat_model("gemini-3-flash-preview", model_provider="google_genai")
 
     if file_type == "nextflow":

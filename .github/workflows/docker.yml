@@ -1,0 +1,13 @@
+name: Docker
+on: [push, pull_request]
+jobs:
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test installed wheel in container
+        run: docker build --target test -t workflow-documentation:test .
+      - name: Build release image
+        run: docker build --target release -t workflow-documentation:local .
+      - name: Verify CLI runs without root or network
+        run: docker run --rm --network none --read-only --tmpfs /tmp workflow-documentation:local --help

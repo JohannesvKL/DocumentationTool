@@ -1,9 +1,6 @@
 import os
 import re
-import git 
 import shutil
-import git 
-import requests
 import yaml
 import json 
 
@@ -11,7 +8,8 @@ def find_files(directory):
     """Finds Dockerfiles and conda environment files."""
     dockerfiles = []
     conda_files = []
-    for root, _, files in os.walk(directory):
+    for root, dirs, files in os.walk(directory):
+        dirs[:] = [d for d in dirs if d not in {".git", ".venv", "__pycache__"}]
         for file in files:
             if file.lower() == 'dockerfile':
                 dockerfiles.append(os.path.join(root, file))
@@ -24,7 +22,8 @@ def find_files_robust(directory):
     """Finds Dockerfiles and conda environment files."""
     dockerfiles = []
     conda_files = []
-    for root, _, files in os.walk(directory):
+    for root, dirs, files in os.walk(directory):
+        dirs[:] = [d for d in dirs if d not in {".git", ".venv", "__pycache__"}]
         for file in files:
             file_path = os.path.join(root, file)
 
@@ -43,7 +42,8 @@ def find_files_robust(directory):
                             conda_files.append(file_path)
                 except Exception as e:
                     # Ignore files that aren't valid YAML or cause other read errors
-                    print(f"Skipping {file_path} due to error: {e}")
+                    if file.lower() in {"environment.yml", "environment.yaml", "conda.yml", "conda.yaml"}:
+                        raise ValueError(f"Invalid environment file {file_path}: {e}") from e
 
     return dockerfiles, conda_files
 
@@ -75,19 +75,31 @@ def check_dockerfile(filepath):
     return unpinned
 
 def check_conda_file(filepath):
-    """Parses a conda environment.yml file for unpinned dependencies using pyyaml."""
-    unpinned = []
-    with open(filepath, 'r') as f:
+    """Return dependencies without an exact version, including nested pip entries."""
+    with open(filepath, encoding="utf-8") as f:
         data = yaml.safe_load(f)
-
-    if 'dependencies' in data:
-        for dep in data['dependencies']:
-            # The dependency can be a string (e.g., 'python=3.9') or a dict
-            if isinstance(dep, str):
-                # Check for a package that does not have a version specifier
-                # (e.g., '=', '==', '>', '<', '>=', '<=', '!=')
-                if not any(char in dep for char in '=<>' '~'):
-                    unpinned.append(f"conda: {dep}")
+    if not isinstance(data, dict) or not isinstance(data.get("dependencies"), list):
+        raise ValueError(f"Invalid Conda environment: {filepath}")
+    unpinned = []
+    for dep in data["dependencies"]:
+        if isinstance(dep, str):
+            # Conda name=version[=build]; ranges and wildcards are not exact pins.
+            match = re.fullmatch(r"(?:[\w.-]+::)?[\w.-]+={1,2}([^=<>!~*,|\s]+)(?:=[\w.-]+)?", dep.strip())
+            if not match:
+                unpinned.append(f"conda: {dep}")
+        elif isinstance(dep, dict) and set(dep) == {"pip"} and isinstance(dep['pip'], list):
+            from packaging.requirements import Requirement, InvalidRequirement
+            for req in dep['pip']:
+                try:
+                    parsed = Requirement(req)
+                    specs = list(parsed.specifier)
+                    pinned = len(specs) == 1 and specs[0].operator in {'==', '==='} and '*' not in specs[0].version
+                except (InvalidRequirement, TypeError):
+                    pinned = False
+                if not pinned:
+                    unpinned.append(f"pip: {req}")
+        else:
+            raise ValueError(f"Unsupported dependency entry in {filepath}: {dep!r}")
     return unpinned
 
 
@@ -118,39 +130,23 @@ def main_checker(pipeline_dir):
         print("\n✅ All dependencies appear to be pinned!")
 
 
-def gitgetter(repo_url, name_suffix="2"): 
-        repo_dir = f"temp_repo_for_analysis"
-        dockerfiles = []
-        conda_files = []
-        try:
-            # Step 1: Clone the repository
-            print(f"Cloning repository from {repo_url}...")
-            repo = git.Repo.clone_from(repo_url, repo_dir)
-            print("Cloning successful. Beginning file search...")
-
-            # Step 2: Run your analysis on the cloned directory
-            dockerfiles, conda_files = find_files_robust(repo_dir)
-            
-            print(f"Found {len(dockerfiles)} Dockerfiles and {len(conda_files)} conda files.")
-
-            # Optional: You can add your version checker functions here
-            # for dockerfile in dockerfiles:
-            #     unpinned_docker = check_dockerfile(dockerfile)
-            #     if unpinned_docker:
-            #         print(f"Dockerfile at {dockerfile} has unpinned dependencies: {unpinned_docker}")
-
-            # for conda_file in conda_files:
-            #     unpinned_conda = check_conda_file(conda_file)
-            #     if unpinned_conda:
-            #         print(f"Conda file at {conda_file} has unpinned dependencies: {unpinned_conda}")
-
-        except git.exc.GitCommandError as e:
-            print(f"Error cloning repository: {e}")
-
+def gitgetter(repo_url, name_suffix=None):
+    """Clone into an owned temporary directory and clean up if setup fails."""
+    import git
+    import tempfile
+    repo_dir = tempfile.mkdtemp(prefix="documentation-check-")
+    try:
+        git.Repo.clone_from(repo_url, repo_dir)
+        dockerfiles, conda_files = find_files_robust(repo_dir)
         return dockerfiles, conda_files, repo_dir
+    except Exception:
+        shutil.rmtree(repo_dir)
+        raise
+
 
 def fetch_github_file(repo_url, file_path, branch="main"):
     """Fetch a file from GitHub repository"""
+    import requests
     if "github.com" in repo_url:
         # Convert GitHub URL to raw content URL
         repo_url = repo_url.replace("github.com", "raw.githubusercontent.com")
@@ -161,7 +157,7 @@ def fetch_github_file(repo_url, file_path, branch="main"):
         raw_url = repo_url
     
     try:
-        response = requests.get(raw_url)
+        response = requests.get(raw_url, timeout=30)
         response.raise_for_status()
         return response.text
     except requests.RequestException as e:
